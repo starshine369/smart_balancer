@@ -25,4 +25,4 @@
 请使用 `root` 权限登录您的 Linux 服务器（如 Ubuntu / Debian / CentOS），并执行以下命令：
 
 ```bash
-wget -O sb.sh [https://raw.githubusercontent.com/starshine369/smart_balancer/main/smart_balancer.sh](https://raw.githubusercontent.com/starshine369/smart_balancer/main/smart_balancer.sh) && bash sb.sh
+wget -O sb.sh https://raw.githubusercontent.com/starshine369/smart_balancer/main/smart_balancer.sh && bash sb.sh
