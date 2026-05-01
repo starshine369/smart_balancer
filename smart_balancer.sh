@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ====================================================
-# Smart Balancer V8.0
+# Smart Balancer V8.2
 # 命令名称: balance
 # 仓库地址: https://github.com/starshine369/smart_balancer
 # ====================================================
@@ -47,7 +47,7 @@ if [ "$1" == "daemon" ]; then
     DANGER_END_TIME=${DANGER_END_TIME:-2330}
     IDLE_START_TIME=${IDLE_START_TIME:-0200}
     IDLE_END_TIME=${IDLE_END_TIME:-0800}
-    IDLE_TX_LIMIT_KB=${IDLE_TX_LIMIT_KB:-500}
+    IDLE_TX_LIMIT_KB=${IDLE_TX_LIMIT_KB:-100}
 
     DOWNLOAD_URLS=()
     if [ -f "$URLS_FILE" ]; then
@@ -62,8 +62,7 @@ if [ "$1" == "daemon" ]; then
     CURL_PID=""
     IS_PAUSED=true
     DEBT_BYTES=0
-    MAX_DEBT=$(( 500 * 1024 * 1024 ))
-    MIN_DEBT=$(( -50 * 1024 * 1024 )) 
+    # 彻底移除人为的结余下限与欠款上限，回归 100% 完美的数学比例累加
     ACTIVATE_DEBT=$(( TRIGGER_MB * 1024 * 1024 ))
     ZOMBIE_COUNT=0
 
@@ -156,19 +155,17 @@ if [ "$1" == "daemon" ]; then
             STATE_MSG="\033[36m[休眠] 未在设定的定时对冲时段内\033[0m"
             PREV_RX_BYTES=$curr_rx; PREV_TX_BYTES=$curr_tx;
         else
+            # 核心完美账本逻辑：不再干预上下限，回归真实记录
             expected_rx=$(( delta_tx * TARGET_RATIO_10 / 10 ))
             debt_diff=$(( expected_rx - delta_rx ))
             DEBT_BYTES=$(( DEBT_BYTES + debt_diff ))
-
-            [[ $DEBT_BYTES -lt $MIN_DEBT ]] && DEBT_BYTES=$MIN_DEBT
-            [[ $DEBT_BYTES -gt $MAX_DEBT ]] && DEBT_BYTES=$MAX_DEBT
 
             if [[ "$IS_YIELDING" == "true" ]]; then
                 if [[ "$IS_PAUSED" == "false" ]]; then kill -STOP "$CURL_PID" 2>/dev/null; IS_PAUSED=true; fi
                 STATE_MSG="\033[35m[避让] 物理带宽超限，主动让步给用户业务\033[0m"
             elif [[ "$CAN_FLUSH" == "no" ]]; then
                 if [[ "$IS_PAUSED" == "false" ]]; then kill -STOP "$CURL_PID" 2>/dev/null; IS_PAUSED=true; fi
-                STATE_MSG="\033[36m[错峰] 高峰期/未达闲时标准，仅记账不洗流\033[0m"
+                STATE_MSG="\033[36m[错峰] 高峰期/上行非闲置，悬挂洗流任务仅记账\033[0m"
             else
                 if [[ $DEBT_BYTES -gt $ACTIVATE_DEBT ]]; then
                     if [[ -z "$CURL_PID" ]] || ! kill -0 "$CURL_PID" 2>/dev/null; then
@@ -179,7 +176,8 @@ if [ "$1" == "daemon" ]; then
                     
                     if [[ "$IS_PAUSED" == "false" ]]; then
                         STATE_MSG="\033[31m[洗流中] 满足开闸条件，平稳洗刷特征中...\033[0m"
-                        if [[ $rx_rate_kb -lt 200 ]]; then
+                        # 防假死阈值下调至 50KB/s，防止限速带来的误杀
+                        if [[ $rx_rate_kb -lt 50 ]]; then
                             ZOMBIE_COUNT=$(( ZOMBIE_COUNT + 1 ))
                             if [[ $ZOMBIE_COUNT -ge 3 ]]; then
                                 start_curl; STATE_MSG="\033[35m[切换] 节点卡死，重新连接...\033[0m"
@@ -192,7 +190,7 @@ if [ "$1" == "daemon" ]; then
                     if [[ "$IS_PAUSED" == "false" ]] && [[ $DEBT_BYTES -le 0 ]]; then
                         kill -STOP "$CURL_PID" 2>/dev/null; IS_PAUSED=true; ZOMBIE_COUNT=0
                     fi
-                    if [[ "$IS_PAUSED" == "true" ]]; then STATE_MSG="\033[32m[待机] 账本清空，进程冻结\033[0m"; fi
+                    if [[ "$IS_PAUSED" == "true" ]]; then STATE_MSG="\033[32m[待机] 账本归零或结余充足，进程冻结\033[0m"; fi
                 fi
             fi
         fi
@@ -200,7 +198,7 @@ if [ "$1" == "daemon" ]; then
         abs_debt_mb=$(awk "BEGIN { if ($DEBT_BYTES < 0) printf \"%.2f\", -($DEBT_BYTES) / 1024 / 1024; else printf \"%.2f\", $DEBT_BYTES / 1024 / 1024 }")
         trigger_mb=$(awk "BEGIN { printf \"%.2f\", $ACTIVATE_DEBT / 1024 / 1024 }")
         
-        if [[ $DEBT_BYTES -lt 0 ]]; then DEBT_STR="\033[32m结余 $abs_debt_mb\033[0m MB (超额下载，静默抵扣中)"
+        if [[ $DEBT_BYTES -lt 0 ]]; then DEBT_STR="\033[32m结余 $abs_debt_mb\033[0m MB (充沛，为您无痕庇护后续上传)"
         else DEBT_STR="\033[33m欠款 $abs_debt_mb\033[0m MB / $trigger_mb MB (唤醒线)"; fi
 
         speed_status_cn=$( [[ "${ENABLE_SPEED_LIMIT:-0}" == "1" ]] && echo "已开启 (限速 ${MAX_SPEED_MB} MB/s)" || echo "未开启 (狂暴模式)" )
@@ -240,7 +238,7 @@ install_system() {
 
     clear
     echo "======================================================"
-    echo "    [*] 正在部署 Smart Balancer 系统 V8.0"
+    echo "    [*] 正在部署 Smart Balancer 系统 V8.2"
     echo "======================================================"
 
     command -v curl >/dev/null 2>&1 || { apt-get update -y && apt-get install curl awk -y || yum install curl awk -y; }
@@ -269,7 +267,7 @@ install_system() {
     RUN_MODE=${RUN_MODE:-4}
 
     DANGER_START_TIME="1800"; DANGER_END_TIME="2330"
-    IDLE_START_TIME="0200"; IDLE_END_TIME="0800"; IDLE_TX_LIMIT_KB=500
+    IDLE_START_TIME="0200"; IDLE_END_TIME="0800"; IDLE_TX_LIMIT_KB=100
 
     if [[ "$RUN_MODE" == "1" ]]; then
         read -p "[+] 高危-开始时间 (HHMM, 默认: 1800): " DANGER_START_TIME
@@ -280,8 +278,8 @@ install_system() {
         read -p "[+] 闲时-洗流结束时段 (HHMM, 默认 0800): " IDLE_END_TIME
         IDLE_END_TIME=${IDLE_END_TIME:-0800}
     elif [[ "$RUN_MODE" == "4" ]]; then
-        read -p "[+] 闲时-上行速率低于多少视为闲时? (KB/s, 默认 500): " IDLE_TX_LIMIT_KB
-        IDLE_TX_LIMIT_KB=${IDLE_TX_LIMIT_KB:-500}
+        read -p "[+] 闲时-上行速率低于多少视为闲置无业务? (KB/s, 默认 100): " IDLE_TX_LIMIT_KB
+        IDLE_TX_LIMIT_KB=${IDLE_TX_LIMIT_KB:-100}
     fi
 
     cat << CFGEOF > "$CONFIG_FILE"
@@ -298,7 +296,7 @@ MAX_SPEED_MB="$MAX_SPEED_MB"
 TRIGGER_MB="10"
 IDLE_START_TIME="${IDLE_START_TIME:-0200}"
 IDLE_END_TIME="${IDLE_END_TIME:-0800}"
-IDLE_TX_LIMIT_KB="${IDLE_TX_LIMIT_KB:-500}"
+IDLE_TX_LIMIT_KB="${IDLE_TX_LIMIT_KB:-100}"
 CFGEOF
 
     cat << URLEOF > "$URLS_FILE"
@@ -344,7 +342,7 @@ show_dashboard() {
     DANGER_END_TIME=${DANGER_END_TIME:-2330}
     IDLE_START_TIME=${IDLE_START_TIME:-0200}
     IDLE_END_TIME=${IDLE_END_TIME:-0800}
-    IDLE_TX_LIMIT_KB=${IDLE_TX_LIMIT_KB:-500}
+    IDLE_TX_LIMIT_KB=${IDLE_TX_LIMIT_KB:-100}
     
     if systemctl is-active --quiet smart_balancer; then STATUS="\033[32m[引擎运转中 RUNNING]\033[0m"
     else STATUS="\033[31m[已停止 STOPPED]\033[0m"; fi
@@ -357,7 +355,7 @@ show_dashboard() {
 
     clear
     echo "======================================================"
-    echo "       Smart Balancer 流量对冲指挥台 V8.0"
+    echo "       Smart Balancer 流量对冲指挥台 V8.2"
     echo "======================================================"
     echo -e " [*] 核心状态   : $STATUS"
     echo " [*] 当前模式   : $MODE_STR"
@@ -372,7 +370,7 @@ show_dashboard() {
     echo " [5] 修改 唤醒防抖线 (当前 ${TRIGGER_MB} MB)"
     echo " [6] 设置 物理防挤占参数 (修改总带宽与让步百分比)"
     echo " [7] 修改 监听网卡 (当前 $IFACE)"
-    echo -e " \033[32m[8] 打开 实时物理雷达 (观测账本与错峰状态)\033[0m"
+    echo -e " \033[32m[8] 打开 实时物理雷达 (观测无尽账本与错峰状态)\033[0m"
     echo " [9] 重启 对冲核心 (修改参数后必须执行生效)"
     echo " [88] 彻底 卸载系统"
     echo " [0] 退出 面板"
@@ -397,7 +395,7 @@ show_dashboard() {
                     read -p "请输入闲时-洗流开始时段 (HHMM) [例如 0200]: " val_s; set_conf "IDLE_START_TIME" "${val_s:-0200}"
                     read -p "请输入闲时-洗流结束时段 (HHMM) [例如 0800]: " val_e; set_conf "IDLE_END_TIME" "${val_e:-0800}"
                 elif [[ "$NEW_MODE" == "4" ]]; then
-                    read -p "请输入判定为闲时的最高上行速率 (KB/s) [例如 500]: " val_kb; set_conf "IDLE_TX_LIMIT_KB" "${val_kb:-500}"
+                    read -p "请输入判定为闲时的最高上行速率 (KB/s) [例如 100]: " val_kb; set_conf "IDLE_TX_LIMIT_KB" "${val_kb:-100}"
                 fi
                 echo "[OK] 模式与专属参数已更新，请按 [9] 重启生效。"
             else
