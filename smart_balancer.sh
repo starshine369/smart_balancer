@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ====================================================
-# Smart Balancer V7.8 (智能错峰洗流版)
+# Smart Balancer V7.9 (全中文沉浸与智能错峰版)
 # 命令名称: balance
 # 仓库地址: https://github.com/starshine369/smart_balancer
 # ====================================================
@@ -60,7 +60,7 @@ if [ "$1" == "daemon" ]; then
     IS_PAUSED=true
     DEBT_BYTES=0
     MAX_DEBT=$(( 500 * 1024 * 1024 ))
-    # V7.8 移除囤流，允许小幅下浮以吸收超调
+    # 允许小幅下浮以吸收超调
     MIN_DEBT=$(( -50 * 1024 * 1024 )) 
     ACTIVATE_DEBT=$(( TRIGGER_MB * 1024 * 1024 ))
     ZOMBIE_COUNT=0
@@ -116,7 +116,7 @@ if [ "$1" == "daemon" ]; then
         CURL_PID=$!
         IS_PAUSED=false
         ZOMBIE_COUNT=0
-        log "[ACTION] Start Downloading | URL: $url"
+        log "[启动] 唤醒极速下载通道 | 目标源: $url"
     }
 
     read -r PREV_RX_BYTES PREV_TX_BYTES <<< "$(get_traffic_bytes)"
@@ -128,7 +128,7 @@ if [ "$1" == "daemon" ]; then
         delta_tx=$((curr_tx - PREV_TX_BYTES))
 
         if [[ $curr_rx -eq 0 && $curr_tx -eq 0 ]]; then
-            echo -e "\033[31m[ERROR] Network interface $IFACE NOT FOUND!\033[0m" > "$STATUS_FILE"
+            echo -e "\033[31m[错误] 未能读取到网卡 $IFACE 的数据，请检查网卡名称！\033[0m" > "$STATUS_FILE"
             sleep 5
             continue
         fi
@@ -164,7 +164,7 @@ if [ "$1" == "daemon" ]; then
             CAN_FLUSH="yes"
         fi
 
-        STATE_MSG="[IDLE] Balance OK"
+        STATE_MSG="[待机] 账面平衡"
 
         if [[ "$IN_DANGER" == "no" ]]; then
             if [[ "$IS_PAUSED" == "false" ]]; then
@@ -172,7 +172,7 @@ if [ "$1" == "daemon" ]; then
                 IS_PAUSED=true
                 DEBT_BYTES=0
             fi
-            STATE_MSG="\033[36m[SLEEP] Outside active hours\033[0m"
+            STATE_MSG="\033[36m[休眠] 未在设定的对冲时段内\033[0m"
             PREV_RX_BYTES=$curr_rx; PREV_TX_BYTES=$curr_tx;
         else
             # 持续精确记账
@@ -188,37 +188,37 @@ if [ "$1" == "daemon" ]; then
                 if [[ "$IS_PAUSED" == "false" ]]; then
                     kill -STOP "$CURL_PID" 2>/dev/null
                     IS_PAUSED=true
-                    log "[YIELD] Physical bandwidth maxed out. Pausing download."
+                    log "[避让] 物理带宽触碰警戒线(${YIELD_PERCENT}%)，冻结洗流进程保护业务。"
                 fi
-                STATE_MSG="\033[35m[YIELD] Bandwidth maxed out. Yielding to user traffic.\033[0m"
+                STATE_MSG="\033[35m[避让] 物理带宽超限，主动让步给用户业务\033[0m"
             elif [[ "$CAN_FLUSH" == "no" ]]; then
                 # 错峰延时：不允许洗流，只记账
                 if [[ "$IS_PAUSED" == "false" ]]; then
                     kill -STOP "$CURL_PID" 2>/dev/null
                     IS_PAUSED=true
-                    log "[DELAY] Peak hours. Suspending flush and hoarding debt."
+                    log "[错峰] 处于业务高峰期，挂起洗流任务，仅持续记账。"
                 fi
-                STATE_MSG="\033[36m[DELAY] 高峰期/上行繁忙，仅记账不洗流\033[0m"
+                STATE_MSG="\033[36m[延时] 高峰期/上行繁忙，仅记账不洗流\033[0m"
             else
                 # 允许洗流状态 (满足错峰闲时，且未被物理挤占)
                 if [[ $DEBT_BYTES -gt $ACTIVATE_DEBT ]]; then
                     if [[ -z "$CURL_PID" ]] || ! kill -0 "$CURL_PID" 2>/dev/null; then
                         start_curl
-                        STATE_MSG="\033[33m[INIT] Connecting to source...\033[0m"
+                        STATE_MSG="\033[33m[初始化] 正在连接下载源...\033[0m"
                     elif [[ "$IS_PAUSED" == "true" ]]; then
                         kill -CONT "$CURL_PID" 2>/dev/null
                         IS_PAUSED=false
-                        log "[RESUME] Flushing debt. Resuming download."
+                        log "[开闸] 满足闲时洗流条件，开始平稳清偿欠款。"
                     fi
                     
                     if [[ "$IS_PAUSED" == "false" ]]; then
-                        STATE_MSG="\033[31m[FLUSHING] 闲时开闸，平稳清偿欠款中...\033[0m"
+                        STATE_MSG="\033[31m[洗流中] 闲时开闸，平稳洗刷特征中...\033[0m"
                         if [[ $rx_rate_kb -lt 200 ]]; then
                             ZOMBIE_COUNT=$(( ZOMBIE_COUNT + 1 ))
                             if [[ $ZOMBIE_COUNT -ge 3 ]]; then
-                                log "[WARN] Channel stalled. Switching source."
+                                log "[警告] 下载通道假死或被限速，强行物理猎杀并换源！"
                                 start_curl
-                                STATE_MSG="\033[35m[SWITCH] Dead link killed, retrying...\033[0m"
+                                STATE_MSG="\033[35m[切换] 节点卡死，正在重新连接备用节点...\033[0m"
                             fi
                         else
                             ZOMBIE_COUNT=0
@@ -229,10 +229,10 @@ if [ "$1" == "daemon" ]; then
                         kill -STOP "$CURL_PID" 2>/dev/null
                         IS_PAUSED=true
                         ZOMBIE_COUNT=0
-                        log "[PAUSE] Debt cleared, freezing process."
+                        log "[冻结] 债务已清偿，休眠下载进程。"
                     fi
                     if [[ "$IS_PAUSED" == "true" ]]; then
-                        STATE_MSG="\033[32m[IDLE] 账本清空，进程冻结\033[0m"
+                        STATE_MSG="\033[32m[待机] 账本清空，进程冻结\033[0m"
                     fi
                 fi
             fi
@@ -242,27 +242,27 @@ if [ "$1" == "daemon" ]; then
         trigger_mb=$(awk "BEGIN { printf \"%.2f\", $ACTIVATE_DEBT / 1024 / 1024 }")
         
         if [[ $DEBT_BYTES -lt 0 ]]; then
-            DEBT_STR="\033[32m结余 $abs_debt_mb\033[0m MB (超额下载，抵扣中)"
+            DEBT_STR="\033[32m结余 $abs_debt_mb\033[0m MB (超额下载，静默抵扣中)"
         else
             DEBT_STR="\033[33m欠款 $abs_debt_mb\033[0m MB / $trigger_mb MB (唤醒线)"
         fi
 
-        speed_status=$( [[ "${ENABLE_SPEED_LIMIT:-0}" == "1" ]] && echo "Enabled (Max ${MAX_SPEED_MB} MB/s)" || echo "Disabled (Unlimited)" )
-        mode_str=$( [[ "$RUN_MODE" == "1" ]] && echo "Timer" || ( [[ "$RUN_MODE" == "3" ]] && echo "Smart Flush (Mode 3)" || echo "24/7 Mode" ) )
+        speed_status_cn=$( [[ "${ENABLE_SPEED_LIMIT:-0}" == "1" ]] && echo "已开启 (限速阈值 ${MAX_SPEED_MB} MB/s)" || echo "未开启 (狂暴模式)" )
+        mode_str_cn=$( [[ "$RUN_MODE" == "1" ]] && echo "定时对冲" || ( [[ "$RUN_MODE" == "3" ]] && echo "智能错峰洗流" || echo "全天候实时对冲" ) )
 
-        echo -e "========== Smart Balancer Physical Radar ==========" > "$STATUS_FILE"
-        echo -e "Interface  : $IFACE | Mode: $mode_str" >> "$STATUS_FILE"
-        echo -e "Bandwidth  : $LINK_CAPACITY_MBPS Mbps (Yield @ $YIELD_PERCENT%)" >> "$STATUS_FILE"
-        echo -e "Ratio Limit: $TARGET_RATIO : 1" >> "$STATUS_FILE"
-        echo -e "Speed Valve: $speed_status" >> "$STATUS_FILE"
+        echo -e "========== Smart Balancer 实时物理雷达 ==========" > "$STATUS_FILE"
+        echo -e "监听网卡   : $IFACE | 模式: $mode_str_cn" >> "$STATUS_FILE"
+        echo -e "物理带宽   : $LINK_CAPACITY_MBPS Mbps (防挤占警戒线: ${YIELD_PERCENT}%)" >> "$STATUS_FILE"
+        echo -e "伪装下行比 : $TARGET_RATIO : 1" >> "$STATUS_FILE"
+        echo -e "限速流控   : $speed_status_cn" >> "$STATUS_FILE"
         echo -e "------------------------------------------------" >> "$STATUS_FILE"
-        echo -e "TX Rate    : \033[36m$tx_rate_kb KB/s\033[0m (Proxy Upload)" >> "$STATUS_FILE"
-        echo -e "RX Rate    : \033[32m$rx_rate_kb KB/s\033[0m (Total Download)" >> "$STATUS_FILE"
+        echo -e "实时上传   : \033[36m$tx_rate_kb KB/s\033[0m (代理真实上行)" >> "$STATUS_FILE"
+        echo -e "实时下载   : \033[32m$rx_rate_kb KB/s\033[0m (全机总计下行)" >> "$STATUS_FILE"
         echo -e "------------------------------------------------" >> "$STATUS_FILE"
         echo -e "流量账本   : $DEBT_STR" >> "$STATUS_FILE"
-        echo -e "Core Status: $STATE_MSG" >> "$STATUS_FILE"
+        echo -e "核心状态   : $STATE_MSG" >> "$STATUS_FILE"
         echo -e "================================================" >> "$STATUS_FILE"
-        echo -e " [INFO] Press Ctrl+C to exit radar panel" >> "$STATUS_FILE"
+        echo -e " [操作] 按 Ctrl+C 退出雷达面板" >> "$STATUS_FILE"
 
         PREV_RX_BYTES=$curr_rx; PREV_TX_BYTES=$curr_tx
     done
@@ -281,7 +281,7 @@ install_system() {
 
     clear
     echo "======================================================"
-    echo "    [*] 正在部署 Smart Balancer 系统 V7.8 (智能错峰版)"
+    echo "    [*] 正在部署 Smart Balancer 系统 V7.9 (全中文沉浸版)"
     echo "======================================================"
 
     command -v curl >/dev/null 2>&1 || { apt-get update -y && apt-get install curl awk -y || yum install curl awk -y; }
@@ -392,7 +392,7 @@ show_dashboard() {
 
     clear
     echo "======================================================"
-    echo "       Smart Balancer 流量对冲指挥台 V7.8"
+    echo "       Smart Balancer 流量对冲指挥台 V7.9"
     echo "======================================================"
     echo -e " [*] 核心状态   : $STATUS"
     echo " [*] 运行模式   : $MODE_STR"
@@ -407,7 +407,7 @@ show_dashboard() {
     echo " [5] 设置 物理防挤占参数 (修改总带宽与让步百分比)"
     echo " [6] 修改 唤醒防抖线 (当前 ${TRIGGER_MB} MB)"
     echo " [7] 修改 监听网卡 (当前 $IFACE)"
-    echo -e " \033[32m[8] 打开 实时物理雷达 (观测账本与错峰状态)\033[0m"
+    echo -e " \033[32m[8] 打开 实时物理雷达 (观测全中文账本与错峰状态)\033[0m"
     echo " [9] 重启 对冲核心 (修改参数后必须执行生效)"
     echo " [88] 彻底 卸载系统"
     echo " [0] 退出 面板"
