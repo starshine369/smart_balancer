@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ====================================================
-# Smart Balancer V8.3 (无尽账本与日志自洁版)
+# Smart Balancer V8.3
 # 命令名称: balance
 # 仓库地址: https://github.com/starshine369/smart_balancer
 # ====================================================
@@ -249,7 +249,7 @@ install_system() {
 
     clear
     echo "======================================================"
-    echo "    [*] 正在部署 Smart Balancer 系统 V8.3 (日志自洁版)"
+    echo "    [*] 正在部署 Smart Balancer 系统 V8.3"
     echo "======================================================"
 
     command -v curl >/dev/null 2>&1 || { apt-get update -y && apt-get install curl awk -y || yum install curl awk -y; }
