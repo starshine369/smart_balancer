@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ====================================================
-# Smart Balancer V8.2
+# Smart Balancer V8.3 (无尽账本与日志自洁版)
 # 命令名称: balance
 # 仓库地址: https://github.com/starshine369/smart_balancer
 # ====================================================
@@ -62,11 +62,22 @@ if [ "$1" == "daemon" ]; then
     CURL_PID=""
     IS_PAUSED=true
     DEBT_BYTES=0
-    # 彻底移除人为的结余下限与欠款上限，回归 100% 完美的数学比例累加
     ACTIVATE_DEBT=$(( TRIGGER_MB * 1024 * 1024 ))
     ZOMBIE_COUNT=0
+    # 日志自洁阈值：2MB
+    MAX_LOG_SIZE=$(( 2 * 1024 * 1024 ))
 
-    log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"; }
+    log() {
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
+        # 日志自洁机制：如果体积超过 2MB，则截断保留最后 1000 行
+        if [[ -f "$LOG_FILE" ]]; then
+            local current_size=$(stat -c%s "$LOG_FILE" 2>/dev/null || stat -f%z "$LOG_FILE" 2>/dev/null || echo 0)
+            if [[ $current_size -gt $MAX_LOG_SIZE ]]; then
+                tail -n 1000 "$LOG_FILE" > "${LOG_FILE}.tmp" && mv "${LOG_FILE}.tmp" "$LOG_FILE"
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] [系统自洁] 日志触发 2MB 阈值，已自动物理切割截断。" >> "$LOG_FILE"
+            fi
+        fi
+    }
 
     cleanup() {
         if [[ -n "$CURL_PID" ]] && kill -0 "$CURL_PID" 2>/dev/null; then kill -9 "$CURL_PID" 2>/dev/null || true; fi
@@ -238,7 +249,7 @@ install_system() {
 
     clear
     echo "======================================================"
-    echo "    [*] 正在部署 Smart Balancer 系统 V8.2"
+    echo "    [*] 正在部署 Smart Balancer 系统 V8.3 (日志自洁版)"
     echo "======================================================"
 
     command -v curl >/dev/null 2>&1 || { apt-get update -y && apt-get install curl awk -y || yum install curl awk -y; }
@@ -355,7 +366,7 @@ show_dashboard() {
 
     clear
     echo "======================================================"
-    echo "       Smart Balancer 流量对冲指挥台 V8.2"
+    echo "       Smart Balancer 流量对冲指挥台 V8.3"
     echo "======================================================"
     echo -e " [*] 核心状态   : $STATUS"
     echo " [*] 当前模式   : $MODE_STR"
